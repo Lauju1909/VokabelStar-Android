@@ -35,7 +35,12 @@
         </provider>
     </application>
 
-    <!-- Permissions -->
+    <!-- Package visibility for cross-app synchronization (Android 11+) -->
+    <queries>
+        <package android:name="de.lauri.bfwenglisch" />
+        <provider android:authorities="de.lauri.bfwenglisch.vocabprovider" />
+    </queries>
 
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
 </manifest>

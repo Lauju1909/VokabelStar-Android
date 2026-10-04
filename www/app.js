@@ -2058,8 +2058,14 @@ function initApp() {
   renderVocabTable();
   setupEventListeners();
   setupDragAndDrop();
-
   appState.gamification.renderStats();
+
+  // Request external topics sync on startup
+  if (window.AndroidSyncBridge && window.AndroidSyncBridge.requestSync) {
+    setTimeout(() => {
+      try { window.AndroidSyncBridge.requestSync(); } catch (e) {}
+    }, 150);
+  }
 }
 
 function applySettingsToUI() {
@@ -3034,7 +3040,8 @@ window.onExternalTopicsSynced = function(jsonStr) {
           words: newWords
         };
         appState.decks.push(existingDeck);
-        if (!appState.activeDeck) appState.activeDeck = existingDeck;
+        appState.activeDeck = existingDeck;
+        StorageManager.setActiveDeckId(existingDeck.id);
         modified = true;
         addedCount++;
       } else {
@@ -3050,7 +3057,20 @@ window.onExternalTopicsSynced = function(jsonStr) {
       populateDeckSelect();
       renderVocabTable();
       updateDeckStatsBadge();
-      announceToScreenReader(`${addedCount > 0 ? addedCount + ' neue ' : ''}Vokabel-Themen aus BFW Vokabel-Verwaltung automatisch geladen.`, "polite");
+      const msg = `🎉 ${addedCount > 0 ? addedCount + ' neue ' : ''}Vokabellisten aus BFW Vokabel-Verwaltung synchronisiert! Aktive Liste: "${appState.activeDeck.title}".`;
+      announceToScreenReader(msg, "assertive");
+      
+      // On-Screen Toast Notification
+      let toast = document.getElementById("sync-live-toast");
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "sync-live-toast";
+        toast.style.cssText = "position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #4caf7d; color: #fff; padding: 12px 20px; border-radius: 25px; font-weight: bold; z-index: 999999; box-shadow: 0 4px 15px rgba(0,0,0,0.4); text-align: center; max-width: 90%;";
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.display = "block";
+      setTimeout(() => { if (toast) toast.style.display = "none"; }, 5000);
     }
   } catch (err) {
     console.warn("Sync error in VokabelStar:", err);
