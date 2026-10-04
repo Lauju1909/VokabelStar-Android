@@ -3004,5 +3004,58 @@ function exportDeckToExcel() {
   announceToScreenReader(`Liste als "${safeFilename}" exportiert.`, "polite");
 }
 
+// ------------------------------------------
+// AUTOMATIC CROSS-APP SYNC FROM BFW VOKABEL-VERWALTUNG
+// ------------------------------------------
+window.onExternalTopicsSynced = function(jsonStr) {
+  try {
+    const topics = JSON.parse(jsonStr);
+    if (!Array.isArray(topics)) return;
+
+    let modified = false;
+    let addedCount = 0;
+
+    topics.forEach(t => {
+      const deckId = "deck_" + t.id;
+      let existingDeck = appState.decks.find(d => d.id === deckId);
+      const newWords = (t.words || []).map((w, idx) => ({
+        id: `${t.id}_${idx + 1}`,
+        source: w.back,
+        target: w.front,
+        note: w.note || t.subtitle,
+        box: 1
+      }));
+
+      if (!existingDeck) {
+        existingDeck = {
+          id: deckId,
+          title: `[${t.level}] ${t.title}`,
+          lang: "en-US",
+          words: newWords
+        };
+        appState.decks.push(existingDeck);
+        if (!appState.activeDeck) appState.activeDeck = existingDeck;
+        modified = true;
+        addedCount++;
+      } else {
+        if (existingDeck.words.length !== newWords.length) {
+          existingDeck.words = newWords;
+          modified = true;
+        }
+      }
+    });
+
+    if (modified) {
+      StorageManager.saveDecks(appState.decks);
+      populateDeckSelect();
+      renderVocabTable();
+      updateDeckStatsBadge();
+      announceToScreenReader(`${addedCount > 0 ? addedCount + ' neue ' : ''}Vokabel-Themen aus BFW Vokabel-Verwaltung automatisch geladen.`, "polite");
+    }
+  } catch (err) {
+    console.warn("Sync error in VokabelStar:", err);
+  }
+};
+
 // Start application when DOM is ready
 window.addEventListener("DOMContentLoaded", initApp);
