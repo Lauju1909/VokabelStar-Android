@@ -1,6 +1,6 @@
 {
   "name": "vokabelstar_android",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Barrierefreier Vokabeltrainer wie Duolingo fuer Android (TalkBack-optimiert)",
   "main": "index.js",
   "scripts": {
