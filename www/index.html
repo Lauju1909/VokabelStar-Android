@@ -52,12 +52,6 @@
           <span class="sr-only" id="sr-xp-text">0 Erfahrungspunkte</span>
         </div>
 
-        <div class="stat-pill stat-hearts" id="stat-hearts-badge" title="Verbleibende Herzen / Leben">
-          <span class="stat-icon" aria-hidden="true">❤️</span>
-          <span class="stat-value" id="display-hearts-count">5</span>
-          <span class="sr-only" id="sr-hearts-text">5 von 5 Herzen</span>
-        </div>
-
         <div class="stat-pill stat-level" id="stat-level-badge" title="Aktuelle Lernstufe">
           <span class="stat-icon" aria-hidden="true">🎖️</span>
           <span class="stat-value" id="display-level-text">Stufe 1</span>
@@ -616,25 +610,16 @@
         </div>
       </div>
 
-      <!-- 3. DUOLINGO GAMEPLAY & HERZEN -->
+      <!-- 3. DUOLINGO SPIELMODUS -->
       <div class="section-card">
-        <h3 class="section-title" data-i18n="sec_gameplay">🎮 Duolingo-Spielmodus &amp; Herzen</h3>
-        <div class="form-group form-check-group" style="display: flex; align-items: center; gap: 8px;">
-          <input type="checkbox" id="check-unlimited-hearts">
-          <label for="check-unlimited-hearts"><strong data-i18n="chk_unlimited_hearts">Unbegrenzte Herzen aktivieren (entspanntes Lernen)</strong></label>
-        </div>
-        <p class="help-text">Bei deaktivierten unbegrenzten Herzen hast du 5 Herzen. Falsche Antworten ziehen ein Herz ab. Ideal für gezielten Nervenkitzel!</p>
+        <h3 class="section-title" data-i18n="sec_gameplay">🎮 Übungen &amp; Spielmodus</h3>
 
-        <!-- NEU: Schreibübungen komplett ein- oder ausstellen -->
-        <div class="form-group form-check-group" style="display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+        <!-- Schreibübungen komplett ein- oder ausstellen -->
+        <div class="form-group form-check-group" style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" id="check-enable-typing" class="check-typing-sync">
           <label for="check-enable-typing"><strong>✍️ Schreibübungen aktivieren (Tastatur-Tippen &amp; Diktat)</strong></label>
         </div>
         <p class="help-text">Standardmäßig ausgestellt. Wenn deaktiviert, erscheinen ausschließlich Übungen ohne Tippen (Zuordnen, Multiple-Choice, Hörverstehen, Karteikarten). Du kannst diese Option jederzeit ein- oder abstellen.</p>
-
-        <div class="form-group" style="margin-top: 1rem;">
-          <button id="btn-refill-hearts" class="btn btn-success btn-sm">❤️ Herzen jetzt wieder auf 5 auffüllen</button>
-        </div>
       </div>
 
       <!-- 4. BARRIEREFREIHEIT & VISUELLES DESIGN -->

@@ -211,31 +211,11 @@ class GamificationEngine {
   }
 
   loseHeart() {
-    if (appState.settings.unlimitedHearts) return true;
-
-    if (this.progress.hearts > 1) {
-      this.progress.hearts -= 1;
-      this.save();
-      this.renderStats();
-      audioManager.playHeartLost();
-      announceToScreenReader(I18n.t("heart_lost_msg", { hearts: this.progress.hearts }), "assertive");
-      return true;
-    } else {
-      this.progress.hearts = 0;
-      this.save();
-      this.renderStats();
-      audioManager.playHeartLost();
-      announceToScreenReader(I18n.t("no_hearts_left"), "assertive");
-      return false; // Out of hearts
-    }
+    return true; // Herzen komplett deaktiviert für stressfreies Lernen
   }
 
   refillHearts() {
-    this.progress.hearts = this.progress.maxHearts;
-    this.save();
-    this.renderStats();
-    audioManager.playSuccess();
-    announceToScreenReader("Herzen wieder voll aufgeladen (5 von 5).", "assertive");
+    return;
   }
 
   recordMatchPairSolved() {
@@ -282,19 +262,6 @@ class GamificationEngine {
 
     const xpSr = document.getElementById("sr-xp-text");
     if (xpSr) xpSr.textContent = I18n.t("xp_label", { count: this.progress.xp });
-
-    // Hearts
-    const heartsVal = document.getElementById("display-hearts-count");
-    const heartsSr = document.getElementById("sr-hearts-text");
-    if (heartsVal) {
-      if (appState.settings.unlimitedHearts) {
-        heartsVal.textContent = "∞";
-        if (heartsSr) heartsSr.textContent = I18n.t("hearts_unlimited");
-      } else {
-        heartsVal.textContent = this.progress.hearts;
-        if (heartsSr) heartsSr.textContent = I18n.t("hearts_label", { count: this.progress.hearts });
-      }
-    }
 
     // Level
     const levelText = document.getElementById("display-level-text");
@@ -452,6 +419,17 @@ class AudioManager {
     }
 
     const pronounceText = expandVocabAbbreviations(clean);
+
+    // TalkBack sofort stummschalten / unterbrechen, damit die englische Aussprache ungestört hörbar ist
+    if (window.AndroidSyncBridge && typeof window.AndroidSyncBridge.interruptTalkBack === "function") {
+      try {
+        window.AndroidSyncBridge.interruptTalkBack();
+      } catch (e) {}
+    }
+    const srAnnounce = document.getElementById("sr-announcements");
+    if (srAnnounce) srAnnounce.textContent = "";
+    const srStatus = document.getElementById("sr-status");
+    if (srStatus) srStatus.textContent = "";
 
     // Stop current audio or speech
     if (this.currentAudioPlayer) {
@@ -1082,16 +1060,7 @@ class BaseGame {
       audioManager.playSuccess();
       appState.gamification.addXP(10);
     } else {
-      const stillHasHearts = appState.gamification.loseHeart();
-      if (!stillHasHearts) {
-        // Out of hearts modal/redirect
-        setTimeout(() => {
-          banner.classList.add("hidden");
-          exitCurrentGame();
-          alert(I18n.t("no_hearts_left"));
-        }, 1200);
-        return;
-      }
+      audioManager.playError();
     }
 
     setTimeout(() => {
@@ -1313,7 +1282,6 @@ class MatchGame {
         if (nextLeft) nextLeft.focus();
       }
     } else {
-      appState.gamification.loseHeart();
       announceToScreenReader(I18n.t("match_fail", { source: leftText, target: rightText }), "assertive");
 
       setTimeout(() => {
@@ -1660,7 +1628,6 @@ class FlashcardsGame extends BaseGame {
       appState.gamification.addXP(10);
     } else {
       audioManager.playError();
-      appState.gamification.loseHeart();
     }
     this.currentIndex++;
     this.nextQuestion();
@@ -1892,15 +1859,15 @@ class AudioQuizGame extends BaseGame {
       </div>
     `;
 
+    // Kurze Ankündigung für Screenreader, dann TalkBack für die englische Aussprache pausieren
+    announceToScreenReader(`Aufgabe ${this.currentIndex + 1} von ${this.totalQuestions}. Höre das Wort an:`, "polite");
+
     // Speak English word automatically
     if (appState.settings.speechEnabled) {
       setTimeout(() => {
         audioManager.speak(currentWord.target, this.lang);
       }, 300);
     }
-
-    const optionsText = options.map((opt, i) => `Taste ${i + 1}: ${opt.source}`).join(". ");
-    announceToScreenReader(`Aufgabe ${this.currentIndex + 1} von ${this.totalQuestions}: Höre das englische Wort an. Optionen: ${optionsText}`, "polite");
 
     document.getElementById("btn-audio-play-word")?.addEventListener("click", () => {
       audioManager.speak(currentWord.target, this.lang);

@@ -9,6 +9,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
+import android.view.accessibility.AccessibilityManager;
+import android.media.AudioManager;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.webkit.JavascriptInterface;
 import com.getcapacitor.BridgeActivity;
 import org.json.JSONObject;
@@ -70,11 +74,45 @@ public class MainActivity extends BridgeActivity implements TextToSpeech.OnInitL
                 }
 
                 @JavascriptInterface
+                public void interruptTalkBack() {
+                    try {
+                        AccessibilityManager am = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
+                        if (am != null) {
+                            am.interrupt();
+                            Log.d(TAG, "TalkBack interrupted successfully via AccessibilityManager.interrupt()");
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "interruptTalkBack failed", e);
+                    }
+                }
+
+                @JavascriptInterface
                 public void speak(String text, String lang) {
                     if (tts == null || !ttsReady || text == null || text.trim().isEmpty()) {
                         return;
                     }
                     try {
+                        // 1. TalkBack sofort unterbrechen / stummschalten
+                        interruptTalkBack();
+
+                        // 2. Audio-Fokus anfordern für saubere Sprachausgabe
+                        try {
+                            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                            if (am != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    AudioFocusRequest afr = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                                        .setAudioAttributes(new AudioAttributes.Builder()
+                                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                            .build())
+                                        .build();
+                                    am.requestAudioFocus(afr);
+                                } else {
+                                    am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+                                }
+                            }
+                        } catch (Exception ignored) {}
+
                         Locale loc = Locale.US;
                         if (lang != null) {
                             String l = lang.toLowerCase();
