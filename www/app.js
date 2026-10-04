@@ -462,6 +462,16 @@ class AudioManager {
       try { this.synth.cancel(); } catch (e) {}
     }
 
+    // 0. Priorität: Native Android System-TTS (100% offline, kein Delay, klare native Aussprache)
+    if (window.AndroidSyncBridge && typeof window.AndroidSyncBridge.speak === "function") {
+      try {
+        window.AndroidSyncBridge.speak(pronounceText, targetLang);
+        return;
+      } catch (nativeErr) {
+        console.warn("[AudioManager] AndroidSyncBridge.speak Fehler:", nativeErr);
+      }
+    }
+
     // 1. Priorität: Lokale echte Microsoft Zira Systemstimme (/api/tts)
     const preferLocalVoice = !appState.settings || !appState.settings.selectedVoiceURI || appState.settings.selectedVoiceURI === "sapi_local";
     if (preferLocalVoice && this.isLocalTtsAvailable) {
@@ -485,15 +495,24 @@ class AudioManager {
       }
     }
 
-    // 2. Priorität: Web Speech Synthesis (NUR wenn eine ECHTE passende Stimme vorhanden ist!)
-    const genuineVoice = this.getBestVoiceForLang(targetLang);
-    if (genuineVoice && this.synth) {
-      const utterance = new SpeechSynthesisUtterance(pronounceText);
-      utterance.rate = (appState.settings && appState.settings.ttsRate) || 1.0;
-      utterance.lang = targetLang;
-      utterance.voice = genuineVoice;
-      this.synth.speak(utterance);
-      return;
+    // 2. Priorität: Web Speech Synthesis (Browser / WebView)
+    if (this.synth) {
+      try {
+        if (this.synth.paused) {
+          this.synth.resume();
+        }
+        const utterance = new SpeechSynthesisUtterance(pronounceText);
+        utterance.rate = (appState.settings && appState.settings.ttsRate) || 1.0;
+        utterance.lang = targetLang;
+        const genuineVoice = this.getBestVoiceForLang(targetLang);
+        if (genuineVoice) {
+          utterance.voice = genuineVoice;
+        }
+        this.synth.speak(utterance);
+        return;
+      } catch (synthErr) {
+        console.warn("[AudioManager] Web Speech Synthesis Fehler:", synthErr);
+      }
     }
 
     // 3. Priorität: Native Aussprache-Audio (z. B. bei englischen Einzelwörtern / Begriffen)
@@ -1158,8 +1177,34 @@ class MatchGame {
 
   render() {
     const container = document.getElementById("game-dynamic-content");
-    const leftWords = [...this.currentPairs].sort(() => Math.random() - 0.5);
-    const rightWords = [...this.currentPairs].sort(() => Math.random() - 0.5);
+
+    // Echter Fisher-Yates Shuffle für gleichmäßige Zufallsverteilung
+    const shuffleArray = (arr) => {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
+
+    const leftWords = shuffleArray(this.currentPairs);
+    let rightWords = shuffleArray(this.currentPairs);
+
+    // Garantiert gemischt: Spalte 1 und Spalte 2 dürfen NIEMALS in der gleichen Reihenfolge sein
+    // und keine Übersetzung darf direkt horizontal gegenüberliegen (Derangement)
+    if (this.currentPairs.length > 1) {
+      let attempts = 0;
+      while (attempts < 30 && rightWords.some((w, idx) => w.id === leftWords[idx]?.id)) {
+        rightWords = shuffleArray(this.currentPairs);
+        attempts++;
+      }
+      // Falls nach 30 Versuchen immer noch eine Paarung auf gleicher Zeile liegt, zyklisch um 1 verschieben
+      if (rightWords.some((w, idx) => w.id === leftWords[idx]?.id)) {
+        const first = rightWords.shift();
+        rightWords.push(first);
+      }
+    }
 
     container.innerHTML = `
       <div class="match-grid-container match-columns-container">
