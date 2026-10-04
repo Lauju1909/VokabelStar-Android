@@ -1,0 +1,8 @@
+{
+  "appId": "de.lauri.vokabelstar",
+  "appName": "VokabelStar",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
