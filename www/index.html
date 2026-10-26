@@ -261,8 +261,8 @@
           <!-- Modus 3: Hör-Auswahl (NEU: Pure Audio Comprehension) -->
           <div class="mode-card" role="listitem">
             <div class="mode-icon" aria-hidden="true">🎧</div>
-            <h3>3. Hör-Auswahl (Listen &amp; Pick)</h3>
-            <p>Höre das englische Wort laut gesprochen und wähle aus 4 deutschen Bedeutungen. Ideal für Gehör &amp; Aussprache ohne Textzwang!</p>
+            <h3 data-i18n="mode_3_title">3. Hör-Auswahl (Listen &amp; Pick)</h3>
+            <p data-i18n="mode_3_desc">Höre das englische Wort laut gesprochen und wähle aus 4 deutschen Bedeutungen. Ideal für Gehör &amp; Aussprache ohne Textzwang!</p>
             <button class="btn btn-primary btn-start-mode" data-mode="audio_quiz" aria-label="Modus 3 starten: Hör-Auswahl Listen and Pick">
               <span data-i18n="btn_start_mode">Modus Starten</span>
             </button>
@@ -271,8 +271,8 @@
           <!-- Modus 4: Wahr oder Falsch -->
           <div class="mode-card" role="listitem">
             <div class="mode-icon" aria-hidden="true">⚖️</div>
-            <h3 data-i18n="mode_3_title">4. Wahr oder Falsch</h3>
-            <p data-i18n="mode_3_desc">Schnell-Check: Stimmt das gezeigte Begriffspaar? Entscheide mit Ja (Taste J) oder Nein (Taste N).</p>
+            <h3 data-i18n="mode_4_title">4. Wahr oder Falsch</h3>
+            <p data-i18n="mode_4_desc">Schnell-Check: Stimmt das gezeigte Begriffspaar? Entscheide mit Ja (Taste J) oder Nein (Taste N).</p>
             <button class="btn btn-primary btn-start-mode" data-mode="truefalse" aria-label="Modus 4 starten: Wahr oder Falsch mit Ja oder Nein">
               <span data-i18n="btn_start_mode">Modus Starten</span>
             </button>
@@ -281,8 +281,8 @@
           <!-- Modus 5: Karteikarten -->
           <div class="mode-card" role="listitem">
             <div class="mode-icon" aria-hidden="true">🗂️</div>
-            <h3 data-i18n="mode_4_title">5. Barrierefreie Karteikarten</h3>
-            <p data-i18n="mode_4_desc">Wort anhören/lesen, mit Leertaste umdrehen, danach als gewusst oder noch üben markieren.</p>
+            <h3 data-i18n="mode_5_title">5. Barrierefreie Karteikarten</h3>
+            <p data-i18n="mode_5_desc">Wort anhören/lesen, mit Leertaste umdrehen, danach als gewusst oder noch üben markieren.</p>
             <button class="btn btn-primary btn-start-mode" data-mode="flashcards" aria-label="Modus 5 starten: Karteikarten">
               <span data-i18n="btn_start_mode">Modus Starten</span>
             </button>
@@ -291,8 +291,8 @@
           <!-- Modus 6: Buchstaben-Puzzeln -->
           <div class="mode-card" role="listitem">
             <div class="mode-icon" aria-hidden="true">🔡</div>
-            <h3 data-i18n="mode_5_title">6. Wort-Baukasten (Puzzeln)</h3>
-            <p data-i18n="mode_5_desc">Bringe durcheinandergewürfelte Buchstaben oder Silben per Klick oder Zifferntaste in die richtige Reihenfolge.</p>
+            <h3 data-i18n="mode_6_title">6. Wort-Baukasten (Puzzeln)</h3>
+            <p data-i18n="mode_6_desc">Bringe durcheinandergewürfelte Buchstaben oder Silben per Klick oder Zifferntaste in die richtige Reihenfolge.</p>
             <button class="btn btn-primary btn-start-mode" data-mode="scramble" aria-label="Modus 6 starten: Wort-Baukasten">
               <span data-i18n="btn_start_mode">Modus Starten</span>
             </button>
@@ -301,8 +301,8 @@
           <!-- Modus 7: Schreib-Training (KANN ABGESTELLT WERDEN) -->
           <div class="mode-card typing-mode-card" id="card-mode-typing" role="listitem">
             <div class="mode-icon" aria-hidden="true">✍️</div>
-            <h3>7. Schreib-Training &amp; Diktat</h3>
-            <p>Lies oder höre den Begriff und tippe das englische Wort per Tastatur. Kann jederzeit abgestellt und übersprungen werden!</p>
+            <h3 data-i18n="mode_7_title">7. Schreib-Training &amp; Diktat</h3>
+            <p data-i18n="mode_7_desc">Lies oder höre den Begriff und tippe das englische Wort per Tastatur. Kann jederzeit abgestellt und übersprungen werden!</p>
             <button class="btn btn-primary btn-start-mode" data-mode="typing" aria-label="Modus 7 starten: Schreib-Training und Diktat">
               <span data-i18n="btn_start_mode">Modus Starten</span>
             </button>
@@ -731,6 +731,8 @@
         <p style="margin-bottom: 14px;">Alle deine Vokabeln, Streaks, XP und Lernstände sind sicher und privat in deinem Browser gespeichert.</p>
         <div class="panel-actions" style="display: flex; gap: 12px; flex-wrap: wrap;">
           <button id="btn-export-backup-json" class="btn btn-secondary" data-i18n="btn_export_backup">📥 Gesamtes Profil als Backup (JSON) herunterladen</button>
+          <button id="btn-import-backup-json" class="btn btn-secondary" data-i18n="btn_import_backup">📤 Backup-Datei (JSON) wiederherstellen</button>
+          <input type="file" id="file-input-backup-json" accept=".json" style="display: none;">
           <button id="btn-reset-defaults" class="btn btn-danger" data-i18n="btn_reset_defaults">⚠️ Auf Standard-Beispielsets zurücksetzen</button>
         </div>
       </div>
@@ -812,5 +814,12 @@
   </footer>
 
   <script src="app.js?v=2"></script>
+  <script>
+    if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

@@ -129,14 +129,15 @@ class StorageManager {
   static getDecks() {
     const raw = localStorage.getItem(this.KEY_DECKS);
     if (!raw) {
-      this.saveDecks(DEFAULT_DECKS);
-      return DEFAULT_DECKS;
+      const cloned = JSON.parse(JSON.stringify(DEFAULT_DECKS));
+      this.saveDecks(cloned);
+      return cloned;
     }
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_DECKS;
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : JSON.parse(JSON.stringify(DEFAULT_DECKS));
     } catch (e) {
-      return DEFAULT_DECKS;
+      return JSON.parse(JSON.stringify(DEFAULT_DECKS));
     }
   }
 
@@ -653,15 +654,129 @@ function getActiveTargetLang() {
 
 const audioManager = new AudioManager();
 
-function announceToScreenReader(message, priority = "polite") {
-  const targetId = priority === "assertive" ? "sr-announcements" : "sr-status";
-  const el = document.getElementById(targetId);
-  if (el) {
-    el.textContent = "";
-    setTimeout(() => {
-      el.textContent = message;
-    }, 50);
+function triggerAccessibleFeedback(type = 'tap') {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    const patterns = {
+      tap: [15],
+      success: [30, 50, 30],
+      warning: [40, 60, 40],
+      error: [80, 50, 80],
+      boundary: [25, 25, 25]
+    };
+    try { navigator.vibrate(patterns[type] || [15]); } catch (_) {}
   }
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!window.__sharedAudioCtx) window.__sharedAudioCtx = new AudioContext();
+    const ctx = window.__sharedAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    
+    if (type === 'success') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } else if (type === 'error') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, now); // A3
+      osc.frequency.setValueAtTime(164.81, now + 0.09); // E3
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.start(now);
+      osc.stop(now + 0.25);
+    } else if (type === 'warning') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(392, now + 0.07);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      osc.start(now);
+      osc.stop(now + 0.18);
+    } else if (type === 'boundary') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(330, now);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      osc.start(now);
+      osc.stop(now + 0.09);
+    } else { // tap
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, now);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      osc.start(now);
+      osc.stop(now + 0.04);
+    }
+  } catch (_) {}
+}
+
+class AriaLiveQueue {
+  constructor() {
+    this.queue = [];
+    this.isProcessing = false;
+    this.timer = null;
+  }
+
+  announce(message, priority = "polite") {
+    if (!message) return;
+    const cleanMsg = String(message).trim();
+    if (!cleanMsg) return;
+
+    if (priority === "assertive") {
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      this.queue.unshift({ message: cleanMsg, priority: "assertive" });
+      this.isProcessing = false;
+      this.processNext();
+    } else {
+      this.queue.push({ message: cleanMsg, priority: "polite" });
+      if (!this.isProcessing) {
+        this.processNext();
+      }
+    }
+  }
+
+  processNext() {
+    if (this.queue.length === 0) {
+      this.isProcessing = false;
+      return;
+    }
+
+    this.isProcessing = true;
+    const item = this.queue.shift();
+    const targetId = item.priority === "assertive" ? "sr-announcements" : "sr-status";
+    const liveEl = document.getElementById(targetId);
+
+    if (liveEl) {
+      liveEl.textContent = "";
+      setTimeout(() => {
+        liveEl.textContent = item.message;
+        const readDuration = Math.max(1200, item.message.length * 65);
+        this.timer = setTimeout(() => {
+          this.processNext();
+        }, readDuration);
+      }, 50);
+    } else {
+      this.processNext();
+    }
+  }
+}
+
+const ariaLiveQueue = new AriaLiveQueue();
+
+function announceToScreenReader(message, priority = "polite") {
+  ariaLiveQueue.announce(message, priority);
 }
 
 // ==========================================
@@ -716,7 +831,16 @@ class DocumentImporter {
     const text = await this.readFileAsText(file);
     const data = JSON.parse(text);
     const vocabList = [];
-    const items = Array.isArray(data) ? data : (data.words || data.items || []);
+    let items = [];
+    if (Array.isArray(data)) {
+      items = data;
+    } else if (data && data.decks && Array.isArray(data.decks)) {
+      data.decks.forEach(d => {
+        if (d && Array.isArray(d.words)) items.push(...d.words);
+      });
+    } else if (data && (data.words || data.items)) {
+      items = data.words || data.items || [];
+    }
     items.forEach(it => {
       const source = it.source || it.back || it.german || it.de || "";
       const target = it.target || it.front || it.english || it.en || "";
@@ -1101,6 +1225,29 @@ function getNextDifferentMode(currentMode) {
 // 7. GAME ENGINES (DUOLINGO COMPATIBLE)
 // ==========================================
 
+function recordWordResult(word, isSuccess) {
+  if (!word) return;
+  const origId = word.originalId || word.id;
+  const deckId = word.deckId || (appState.activeDeck ? appState.activeDeck.id : null);
+
+  let foundWord = null;
+  for (const d of appState.decks) {
+    if (deckId && d.id !== deckId) continue;
+    if (d.words) {
+      foundWord = d.words.find(w => w.id === origId || w.id === word.id);
+      if (foundWord) break;
+    }
+  }
+  if (!foundWord && appState.activeDeck && appState.activeDeck.words) {
+    foundWord = appState.activeDeck.words.find(w => w.id === origId || w.id === word.id);
+  }
+  if (foundWord) {
+    const currentBox = foundWord.box || 1;
+    foundWord.box = isSuccess ? Math.min(5, currentBox + 1) : 1;
+    StorageManager.saveDecks(appState.decks);
+  }
+}
+
 class BaseGame {
   constructor(words, lang) {
     this.words = [...words].sort(() => Math.random() - 0.5);
@@ -1108,6 +1255,7 @@ class BaseGame {
     this.totalQuestions = Math.min(this.words.length, 10);
     this.currentIndex = 0;
     this.score = 0;
+    this.isLocked = false;
   }
 
   renderProgress() {
@@ -1125,7 +1273,14 @@ class BaseGame {
     }
   }
 
+
+
+  recordWordResult(word, isSuccess) {
+    recordWordResult(word, isSuccess);
+  }
+
   showFeedback(isSuccess, text, callback) {
+    this.isLocked = true;
     const banner = document.getElementById("game-feedback-banner");
     banner.className = `feedback-banner ${isSuccess ? "success" : "error"}`;
     banner.textContent = text;
@@ -1141,6 +1296,7 @@ class BaseGame {
 
     setTimeout(() => {
       banner.classList.add("hidden");
+      this.isLocked = false;
       if (callback) callback();
     }, 1400);
   }
@@ -1148,6 +1304,9 @@ class BaseGame {
   showFinalResults() {
     audioManager.playFanfare();
     appState.gamification.recordLessonComplete();
+
+    const btnAudioRepeat = document.getElementById("btn-audio-repeat");
+    if (btnAudioRepeat) btnAudioRepeat.style.display = "none";
 
     const container = document.getElementById("game-dynamic-content");
     const pct = Math.round((this.score / this.totalQuestions) * 100);
@@ -1246,8 +1405,7 @@ class MatchGame {
       }
       // Falls nach 30 Versuchen immer noch eine Paarung auf gleicher Zeile liegt, zyklisch um 1 verschieben
       if (rightWords.some((w, idx) => w.id === leftWords[idx]?.id)) {
-        const first = rightWords.shift();
-        rightWords.push(first);
+        rightWords = [...leftWords.slice(1), leftWords[0]];
       }
     }
 
@@ -1258,11 +1416,11 @@ class MatchGame {
           <div class="match-col-title">${I18n.t("col_source")}</div>
           ${leftWords.map((item, idx) => `
             <button class="match-tile match-tile-left"
-                    data-id="${item.id}"
+                    data-id="${escapeHtml(item.id)}"
                     data-side="left"
-                    data-text="${item.source}"
-                    aria-label="${item.source}, Begriff ${idx + 1} von ${leftWords.length}">
-              ${item.source}
+                    data-text="${escapeHtml(item.source)}"
+                    aria-label="${escapeHtml(item.source)}, Begriff ${idx + 1} von ${leftWords.length}">
+              ${escapeHtml(item.source)}
             </button>
           `).join("")}
         </div>
@@ -1274,7 +1432,7 @@ class MatchGame {
             <div class="match-tile-row" style="display: flex; gap: 6px; align-items: stretch;">
               <button class="match-tile match-tile-right"
                       style="flex: 1;"
-                      data-id="${item.id}"
+                      data-id="${escapeHtml(item.id)}"
                       data-side="right"
                       data-text="${escapeHtml(item.target)}"
                       aria-label="${escapeHtml(item.target)}, Übersetzung ${idx + 1} von ${rightWords.length}">
@@ -1326,13 +1484,22 @@ class MatchGame {
   }
 
   checkPairMatch() {
-    const isMatch = this.selectedLeft.id === this.selectedRight.id;
+    const leftPair = this.currentPairs.find(p => String(p.id) === String(this.selectedLeft.id));
+    const rightPair = this.currentPairs.find(p => String(p.id) === String(this.selectedRight.id));
+    const isMatch = (leftPair && rightPair && (
+      leftPair.id === rightPair.id ||
+      (leftPair.source.trim().toLowerCase() === rightPair.source.trim().toLowerCase() &&
+       leftPair.target.trim().toLowerCase() === rightPair.target.trim().toLowerCase()) ||
+      leftPair.target.trim().toLowerCase() === this.selectedRight.text.trim().toLowerCase()
+    )) || (this.selectedLeft.id === this.selectedRight.id);
+
     const leftEl = this.selectedLeft.element;
     const rightEl = this.selectedRight.element;
     const leftText = this.selectedLeft.text;
     const rightText = this.selectedRight.text;
 
     if (isMatch) {
+      if (leftPair) recordWordResult(leftPair, true);
       audioManager.playSuccess();
       appState.gamification.addXP(10);
       appState.gamification.recordMatchPairSolved();
@@ -1432,8 +1599,30 @@ class QuizGame extends BaseGame {
     this.renderProgress();
     const currentWord = this.words[this.currentIndex];
 
-    const otherWords = this.words.filter(w => w.id !== currentWord.id);
-    const shuffledOthers = [...otherWords].sort(() => Math.random() - 0.5).slice(0, 3);
+    const seenSources = new Set([currentWord.source.trim().toLowerCase()]);
+    let uniqueOthers = [];
+    const otherWords = this.words.filter(w => w.id !== currentWord.id && w.source.trim().toLowerCase() !== currentWord.source.trim().toLowerCase());
+    for (const w of otherWords) {
+      const s = w.source.trim().toLowerCase();
+      if (!seenSources.has(s)) {
+        seenSources.add(s);
+        uniqueOthers.push(w);
+      }
+    }
+    if (uniqueOthers.length < 3) {
+      for (const d of DEFAULT_DECKS) {
+        for (const w of d.words) {
+          const s = w.source.trim().toLowerCase();
+          if (!seenSources.has(s)) {
+            seenSources.add(s);
+            uniqueOthers.push(w);
+            if (uniqueOthers.length >= 3) break;
+          }
+        }
+        if (uniqueOthers.length >= 3) break;
+      }
+    }
+    const shuffledOthers = [...uniqueOthers].sort(() => Math.random() - 0.5).slice(0, 3);
     const options = [currentWord, ...shuffledOthers].sort(() => Math.random() - 0.5);
 
     const container = document.getElementById("game-dynamic-content");
@@ -1477,9 +1666,12 @@ class QuizGame extends BaseGame {
   }
 
   handleAnswer(btn) {
+    if (this.isLocked) return;
     const isCorrect = btn.dataset.correct === "true";
     const answerText = btn.dataset.answer;
     const currentWord = this.words[this.currentIndex];
+
+    this.recordWordResult(currentWord, isCorrect);
 
     if (isCorrect) {
       this.score++;
@@ -1496,6 +1688,7 @@ class QuizGame extends BaseGame {
   }
 
   handleKey(e) {
+    if (this.isLocked) return;
     if (["1", "2", "3", "4"].includes(e.key)) {
       const btn = document.querySelector(`.quiz-option-btn[data-key="${e.key}"]`);
       if (btn) btn.click();
@@ -1529,13 +1722,21 @@ class TrueFalseGame extends BaseGame {
 
     this.renderProgress();
     const currentWord = this.words[this.currentIndex];
-    const isActuallyTrue = Math.random() >= 0.5;
+    let isActuallyTrue = Math.random() >= 0.5;
 
     let shownTarget = currentWord.target;
     if (!isActuallyTrue) {
-      const others = this.words.filter(w => w.id !== currentWord.id);
+      const others = this.words.filter(w => w.target.trim().toLowerCase() !== currentWord.target.trim().toLowerCase());
       if (others.length > 0) {
         shownTarget = others[Math.floor(Math.random() * others.length)].target;
+      } else {
+        const fallbackWords = DEFAULT_DECKS.flatMap(d => d.words).filter(w => w.target.trim().toLowerCase() !== currentWord.target.trim().toLowerCase());
+        if (fallbackWords.length > 0) {
+          shownTarget = fallbackWords[Math.floor(Math.random() * fallbackWords.length)].target;
+        } else {
+          isActuallyTrue = true;
+          shownTarget = currentWord.target;
+        }
       }
     }
 
@@ -1583,8 +1784,12 @@ class TrueFalseGame extends BaseGame {
   }
 
   handleDecision(userSaysTrue) {
+    if (this.isLocked) return;
     const q = this.currentQuestionData;
     const isCorrect = userSaysTrue === q.isActuallyTrue;
+    const currentWord = this.words[this.currentIndex];
+
+    this.recordWordResult(currentWord, isCorrect);
 
     if (isCorrect) {
       this.score++;
@@ -1607,6 +1812,7 @@ class TrueFalseGame extends BaseGame {
   }
 
   handleKey(e) {
+    if (this.isLocked) return;
     const key = e.key.toLowerCase();
     if (["j", "y", "s", "o", "t", "1"].includes(key)) {
       document.getElementById("btn-tf-true")?.click();
@@ -1647,9 +1853,9 @@ class FlashcardsGame extends BaseGame {
     container.innerHTML = `
       <div class="flashcard-wrapper">
         <div id="flashcard-element" class="flashcard-box" tabindex="0" role="button"
-             aria-label="Karteikarte: ${currentWord.source}. Drücke Leertaste zum Umdrehen.">
+             aria-label="Karteikarte: ${escapeHtml(currentWord.source)}. Drücke Leertaste zum Umdrehen.">
           <div class="flashcard-side-tag">${I18n.t("flashcard_front_tag")}</div>
-          <div class="flashcard-main-text">${currentWord.source}</div>
+          <div class="flashcard-main-text">${escapeHtml(currentWord.source)}</div>
           <div class="flashcard-sub-text">${I18n.t("flashcard_hint_flip")}</div>
         </div>
 
@@ -1680,6 +1886,7 @@ class FlashcardsGame extends BaseGame {
     const cardEl = document.getElementById("flashcard-element");
     const actions = document.getElementById("flashcard-rating-actions");
 
+    cardEl.setAttribute("aria-label", `Karteikarte umgedreht: ${currentWord.target}`);
     cardEl.innerHTML = `
       <div class="flashcard-side-tag">${I18n.t("flashcard_back_tag")}</div>
       <div class="flashcard-main-text">${escapeHtml(currentWord.target)}</div>
@@ -1701,6 +1908,9 @@ class FlashcardsGame extends BaseGame {
   }
 
   rateCard(known) {
+    const currentWord = this.words[this.currentIndex];
+    this.recordWordResult(currentWord, known);
+
     if (known) {
       this.score++;
       audioManager.playSuccess();
@@ -1775,22 +1985,22 @@ class ScrambleGame extends BaseGame {
           <p class="quiz-hint">${I18n.t("scramble_prompt")}</p>
           <h2 class="scramble-source-word">${escapeHtml(currentWord.source)}</h2>
           <div style="margin-top: 8px; display: flex; justify-content: center;">
-            ${createSpeakButtonHtml(currentWord.target, this.lang)}
+            ${createSpeakButtonHtml(currentWord.target, currentWord.lang || this.lang)}
           </div>
         </div>
 
         <div class="scramble-answer-display" role="status" aria-label="Bisher gebautes Wort">
           ${this.assembledTokens.length === 0
             ? '<span class="quiz-hint">Wähle Bausteine von unten aus...</span>'
-            : this.assembledTokens.map(t => `<span class="scramble-letter-token">${t.char}</span>`).join("")
+            : this.assembledTokens.map(t => `<span class="scramble-letter-token">${escapeHtml(t.char)}</span>`).join("")
           }
         </div>
 
         <div class="scramble-pool" role="group" aria-label="Verfügbare Buchstabenbausteine">
           ${this.availableChips.map((chip, i) => `
             <button class="scramble-chip-btn" data-chip-id="${chip.id}" data-key="${i + 1}"
-                    aria-label="Baustein ${i + 1}: ${chip.char}">
-              ${chip.char}
+                    aria-label="Baustein ${i + 1}: ${escapeHtml(chip.char)}">
+              ${escapeHtml(chip.char)}
             </button>
           `).join("")}
         </div>
@@ -1848,11 +2058,13 @@ class ScrambleGame extends BaseGame {
   }
 
   checkAnswer() {
+    if (this.isLocked) return;
     const currentWord = this.words[this.currentIndex];
     const userBuilt = this.assembledTokens.map(t => t.char).join("").toLowerCase();
     const correctTarget = currentWord.target.toLowerCase().replace(/\s+/g, "");
 
     const isMatch = userBuilt.replace(/\s+/g, "") === correctTarget;
+    this.recordWordResult(currentWord, isMatch);
 
     if (isMatch) {
       this.score++;
@@ -1869,6 +2081,7 @@ class ScrambleGame extends BaseGame {
   }
 
   handleKey(e) {
+    if (this.isLocked) return;
     if (e.key === "Backspace") {
       this.undoToken();
     } else if (e.key === "Enter") {
@@ -1906,8 +2119,30 @@ class AudioQuizGame extends BaseGame {
     this.renderProgress();
     const currentWord = this.words[this.currentIndex];
 
-    const otherWords = this.words.filter(w => w.id !== currentWord.id);
-    const shuffledOthers = [...otherWords].sort(() => Math.random() - 0.5).slice(0, 3);
+    const seenSources = new Set([currentWord.source.trim().toLowerCase()]);
+    let uniqueOthers = [];
+    const otherWords = this.words.filter(w => w.id !== currentWord.id && w.source.trim().toLowerCase() !== currentWord.source.trim().toLowerCase());
+    for (const w of otherWords) {
+      const s = w.source.trim().toLowerCase();
+      if (!seenSources.has(s)) {
+        seenSources.add(s);
+        uniqueOthers.push(w);
+      }
+    }
+    if (uniqueOthers.length < 3) {
+      for (const d of DEFAULT_DECKS) {
+        for (const w of d.words) {
+          const s = w.source.trim().toLowerCase();
+          if (!seenSources.has(s)) {
+            seenSources.add(s);
+            uniqueOthers.push(w);
+            if (uniqueOthers.length >= 3) break;
+          }
+        }
+        if (uniqueOthers.length >= 3) break;
+      }
+    }
+    const shuffledOthers = [...uniqueOthers].sort(() => Math.random() - 0.5).slice(0, 3);
     const options = [currentWord, ...shuffledOthers].sort(() => Math.random() - 0.5);
 
     const container = document.getElementById("game-dynamic-content");
@@ -1961,9 +2196,12 @@ class AudioQuizGame extends BaseGame {
   }
 
   handleAnswer(btn) {
+    if (this.isLocked) return;
     const isCorrect = btn.dataset.correct === "true";
     const answerText = btn.dataset.answer;
     const currentWord = this.words[this.currentIndex];
+
+    this.recordWordResult(currentWord, isCorrect);
 
     if (isCorrect) {
       this.score++;
@@ -1980,6 +2218,7 @@ class AudioQuizGame extends BaseGame {
   }
 
   handleKey(e) {
+    if (this.isLocked) return;
     if (["1", "2", "3", "4"].includes(e.key)) {
       const btn = document.querySelector(`.quiz-option-btn[data-key="${e.key}"]`);
       if (btn) btn.click();
@@ -2022,7 +2261,7 @@ class TypingGame extends BaseGame {
         ${currentWord.note ? `<p class="help-text">Hinweis: ${escapeHtml(currentWord.note)}</p>` : ""}
 
         <div style="margin-bottom: 6px;">
-          <button type="button" id="btn-typing-hear" class="btn btn-secondary btn-word-speak" data-speak-word="${escapeHtml(currentWord.target)}" data-speak-lang="${this.lang}" aria-label="Aussprache anhören (Taste R)">
+          <button type="button" id="btn-typing-hear" class="btn btn-secondary btn-word-speak" data-speak-word="${escapeHtml(currentWord.target)}" data-speak-lang="${escapeHtml(currentWord.lang || this.lang)}" aria-label="Aussprache anhören (Taste R)">
             <span aria-hidden="true">🗣️</span> <span>Aussprache anhören (Taste R)</span>
           </button>
         </div>
@@ -2074,6 +2313,7 @@ class TypingGame extends BaseGame {
   }
 
   checkTypingAnswer() {
+    if (this.isLocked) return;
     const input = document.getElementById("input-typing-word");
     if (!input) return;
     const userVal = input.value.trim().toLowerCase();
@@ -2082,8 +2322,11 @@ class TypingGame extends BaseGame {
 
     const cleanUser = userVal.replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "").replace(/\s+/g, " ");
     const cleanCorrect = correctVal.replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "").replace(/\s+/g, " ");
+    const isCorrect = cleanUser === cleanCorrect;
 
-    if (cleanUser === cleanCorrect) {
+    this.recordWordResult(currentWord, isCorrect);
+
+    if (isCorrect) {
       this.score++;
       this.showFeedback(true, `Perfekt geschrieben! "${currentWord.source}" = "${currentWord.target}".`, () => {
         this.currentIndex++;
@@ -2098,7 +2341,9 @@ class TypingGame extends BaseGame {
   }
 
   revealAnswer() {
+    if (this.isLocked) return;
     const currentWord = this.words[this.currentIndex];
+    this.recordWordResult(currentWord, false);
     audioManager.speak(currentWord.target, currentWord.lang || this.lang);
     this.showFeedback(false, `Lösung aufgedeckt: "${currentWord.source}" = "${currentWord.target}".`, () => {
       this.currentIndex++;
@@ -2352,6 +2597,10 @@ function updateDeckStatsBadge() {
   }
 }
 
+function updateDuolingoPathStats() {
+  updateDeckStatsBadge();
+}
+
 let lastFocusedModalElement = null;
 
 function openCreateDeckModal() {
@@ -2498,7 +2747,7 @@ function renderVocabTable(filterQuery = "") {
       </td>
       <td><span class="badge-stats">Box ${w.box || 1}</span></td>
       <td>
-        <button class="btn btn-secondary btn-delete-word" data-id="${w.originalId}" data-deck-id="${w.deckId}" aria-label="Vokabel ${escapeHtml(w.source)} löschen">
+        <button class="btn btn-secondary btn-delete-word" data-id="${escapeHtml(w.originalId || w.id)}" data-deck-id="${escapeHtml(w.deckId || (appState.activeDeck ? appState.activeDeck.id : ''))}" aria-label="Vokabel ${escapeHtml(w.source)} löschen">
           🗑️ Löschen
         </button>
       </td>
@@ -2510,11 +2759,14 @@ function renderVocabTable(filterQuery = "") {
     btn.addEventListener("click", () => {
       const origId = btn.dataset.id;
       const deckId = btn.dataset.deckId;
-      const targetDeck = appState.decks.find(d => d.id === deckId);
+      let targetDeck = appState.decks.find(d => d.id === deckId);
+      if (!targetDeck && appState.activeDeck) targetDeck = appState.activeDeck;
       if (targetDeck && targetDeck.words) {
-        targetDeck.words = targetDeck.words.filter(w => w.id !== origId);
+        targetDeck.words = targetDeck.words.filter(w => String(w.id) !== String(origId));
         StorageManager.saveDecks(appState.decks);
-        renderVocabTable();
+        const searchInput = document.getElementById("input-search-vocab");
+        const currentQuery = searchInput ? searchInput.value : "";
+        renderVocabTable(currentQuery);
         populateDeckSelect();
         announceToScreenReader("Vokabel gelöscht.", "assertive");
       }
@@ -2537,6 +2789,9 @@ function startGame(mode) {
     alert("Die ausgewählten Vokabellisten enthalten keine Vokabeln! Bitte wähle eine Liste mit Vokabeln oder importiere neue.");
     return;
   }
+
+  const btnAudioRepeat = document.getElementById("btn-audio-repeat");
+  if (btnAudioRepeat) btnAudioRepeat.style.display = "";
 
   // If typing requested but disabled, redirect to next valid mode
   if (mode === "typing" && (!appState.settings || !appState.settings.enableTypingExercises)) {
