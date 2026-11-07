@@ -66,6 +66,7 @@ public class MainActivity extends BridgeActivity implements TextToSpeech.OnInitL
 
     private void registerJsBridge() {
         if (bridge != null && bridge.getWebView() != null) {
+            bridge.getWebView().addJavascriptInterface(new RustAppCore(), "RustCore");
             bridge.getWebView().addJavascriptInterface(new Object() {
                 @JavascriptInterface
                 public void requestSync() {
